@@ -10,6 +10,7 @@ import type { InputPromptProps } from './InputPrompt.js';
 import { InputPrompt } from './InputPrompt.js';
 import type { TextBuffer } from './shared/text-buffer.js';
 import type { Config } from '@google/gemini-cli-core';
+import { ApprovalMode } from '@google/gemini-cli-core';
 import * as path from 'node:path';
 import type { CommandContext, SlashCommand } from '../commands/types.js';
 import { CommandKind } from '../commands/types.js';
@@ -126,13 +127,13 @@ describe('InputPrompt', () => {
       killLineLeft: vi.fn(),
       openInExternalEditor: vi.fn(),
       newline: vi.fn(),
+      undo: vi.fn(),
+      redo: vi.fn(),
       backspace: vi.fn(),
       preferredCol: null,
       selectionAnchor: null,
       insert: vi.fn(),
       del: vi.fn(),
-      undo: vi.fn(),
-      redo: vi.fn(),
       replaceRange: vi.fn(),
       deleteWordLeft: vi.fn(),
       deleteWordRight: vi.fn(),
@@ -207,6 +208,7 @@ describe('InputPrompt', () => {
       commandContext: mockCommandContext,
       shellModeActive: false,
       setShellModeActive: vi.fn(),
+      approvalMode: ApprovalMode.DEFAULT,
       inputWidth: 80,
       suggestionsWidth: 80,
       focus: true,
@@ -1333,6 +1335,33 @@ describe('InputPrompt', () => {
     });
   });
 
+  describe('multiline rendering', () => {
+    it('should correctly render multiline input including blank lines', async () => {
+      const text = 'hello\n\nworld';
+      mockBuffer.text = text;
+      mockBuffer.lines = text.split('\n');
+      mockBuffer.viewportVisualLines = text.split('\n');
+      mockBuffer.allVisualLines = text.split('\n');
+      mockBuffer.visualCursor = [2, 5]; // cursor at the end of "world"
+
+      const { stdout, unmount } = renderWithProviders(
+        <InputPrompt {...props} />,
+      );
+      await wait();
+
+      const frame = stdout.lastFrame();
+      // Check that all lines, including the empty one, are rendered.
+      // This implicitly tests that the Box wrapper provides height for the empty line.
+      expect(frame).toContain('hello');
+      expect(frame).toContain(`world${chalk.inverse(' ')}`);
+
+      const outputLines = frame!.split('\n');
+      // The number of lines should be 2 for the border plus 3 for the content.
+      expect(outputLines.length).toBe(5);
+      unmount();
+    });
+  });
+
   describe('multiline paste', () => {
     it.each([
       {
@@ -1756,6 +1785,38 @@ describe('InputPrompt', () => {
 
       expect(props.buffer.move).toHaveBeenCalledWith('end');
       expect(props.buffer.moveToOffset).not.toHaveBeenCalled();
+      unmount();
+    });
+  });
+
+  describe('snapshots', () => {
+    it('should render correctly in shell mode', async () => {
+      props.shellModeActive = true;
+      const { stdout, unmount } = renderWithProviders(
+        <InputPrompt {...props} />,
+      );
+      await wait();
+      expect(stdout.lastFrame()).toMatchSnapshot();
+      unmount();
+    });
+
+    it('should render correctly when accepting edits', async () => {
+      props.approvalMode = ApprovalMode.AUTO_EDIT;
+      const { stdout, unmount } = renderWithProviders(
+        <InputPrompt {...props} />,
+      );
+      await wait();
+      expect(stdout.lastFrame()).toMatchSnapshot();
+      unmount();
+    });
+
+    it('should render correctly in yolo mode', async () => {
+      props.approvalMode = ApprovalMode.YOLO;
+      const { stdout, unmount } = renderWithProviders(
+        <InputPrompt {...props} />,
+      );
+      await wait();
+      expect(stdout.lastFrame()).toMatchSnapshot();
       unmount();
     });
   });
